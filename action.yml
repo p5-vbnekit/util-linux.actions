@@ -1,0 +1,11 @@
+name: "util-linux"
+description: "This action will install `util-linux` rebuilt from `debian:bookworm` source package"
+author: "p5-vbnekit"
+
+runs:
+  using: composite
+  steps:
+  - shell: sh
+    env: { LANG: C, LC_ALL: C, DEBIAN_FRONTEND: noninteractive }
+    run: sudo apt install --assume-yes -- ./*.deb
+    working-directory: "${{ github.action_path }}/packages"

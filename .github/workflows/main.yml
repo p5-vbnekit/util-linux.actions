@@ -1,0 +1,59 @@
+on: push
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+    - env: { LANG: C, LC_ALL: C, DEBIAN_FRONTEND: noninteractive }
+      run: |
+        # dependencies
+        sudo apt update --assume-yes
+        apt-mark showmanual | sudo xargs --no-run-if-empty -- apt-mark auto --
+        sudo apt install --assume-yes -- git devscripts asciidoctor debhelper-compat dh-exec po-debconf socat \
+          libaudit-dev libcap-ng-dev libcryptsetup-dev libpam0g-dev libsystemd-dev libudev-dev
+        # sudo apt full-upgrade --assume-yes
+        # sudo apt autoremove --assume-yes
+        # sudo apt full-upgrade --assume-yes
+        # sudo apt purge --assume-yes -- '~c'
+
+    - shell: python3 {0}
+      run: |
+        # build
+        import shutil
+        import pathlib
+        import subprocess
+        _current_directory = pathlib.Path(".").resolve(strict = True)
+        assert _current_directory.is_dir()
+        _build_directory = _current_directory / "build"
+        _build_directory.mkdir(parents = False, exist_ok = False)
+        assert _build_directory.resolve(strict = True) == _build_directory
+        _salsa_directory = _build_directory / "salsa"
+        assert not (_salsa_directory.is_symlink() or _salsa_directory.exists()) 
+        subprocess.check_call((
+            "git", "clone", "--depth=1", "--branch=bookworm", "--",
+            "https://salsa.debian.org/debian/util-linux.git", _salsa_directory.name
+        ), stdin = subprocess.DEVNULL, cwd = _salsa_directory.parent)
+        assert _salsa_directory.resolve(strict = True) == _salsa_directory
+        subprocess.check_call(("dpkg-buildpackage", "--build=binary"), stdin = subprocess.DEVNULL, cwd = _salsa_directory)
+        shutil.rmtree(_salsa_directory)
+        _packages = list()
+        for _path in ("util-linux", "util-linux-extra", "libmount1", "libsmartcols1"):
+            _path, = _build_directory.glob(f"{_path}_*_amd64.deb")
+            assert _path.resolve(strict = True) == _path
+            assert _path.is_file()
+            _packages.append(_path.name)
+        subprocess.check_call((
+            "sudo", "apt", "install", "--assume-yes", "--", *[f"./{_path}" for _path in _packages]
+        ), stdin = subprocess.DEVNULL, cwd = _build_directory)
+        _packages = set(_packages)
+        _packages_directory = _build_directory / "packages"
+        _packages_directory.mkdir(parents = False, exist_ok = False)
+        assert _packages_directory.resolve(strict = True) == _packages_directory
+        for _path in filter(lambda p: p.name in _packages, _build_directory.glob("*")): _path.replace(
+            _packages_directory / _path.name
+        )
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: packages
+        path: build/packages
